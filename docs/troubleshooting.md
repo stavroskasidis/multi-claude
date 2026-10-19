@@ -31,6 +31,15 @@ Your organization restricts PowerShell (AppLocker, Device Guard or similar). mul
 load a small helper to set icons and taskbar IDs, so ask your IT team, or use the machine's regular
 Claude account only.
 
+**Windows: opening a profile only brings up the regular Claude.**
+Newer Claude versions keep their data in `%LOCALAPPDATA%\Claude-Data` and ignore the profile's data
+folder unless multi-claude starts them in a particular way (see [How it works](how-it-works.md)).
+Update multi-claude, then open the profile from its shortcut again.
+
+**Windows: `Join-Path $env:LOCALAPPDATA …` fails in a profile's terminal.**
+Profiles see `LOCALAPPDATA` as a `\\?\C:\…` path, which PowerShell's `Join-Path` rejects. Use
+`[Environment]::GetFolderPath('LocalApplicationData')` or `"$env:LOCALAPPDATA\…"` instead.
+
 **Windows: a profile's window shows under the regular Claude button.**
 Open the profile from its own Start menu shortcut or pinned button, not from the regular Claude. If it
 still happens, `multi-claude doctor` should list its windows with `taskbar id: MultiClaude.<name>`.

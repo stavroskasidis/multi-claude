@@ -14,6 +14,15 @@ gives a second, fully separate instance with its own login. That is all a profil
 
 Nothing inside Claude changes, so app updates apply to every profile.
 
+On Windows, newer Claude versions move their data out of the app package to
+`%LOCALAPPDATA%\Claude-Data` and from then on use that folder whatever `--user-data-dir` says, so a
+profile would just open the regular Claude. Claude skips that move when `LOCALAPPDATA` is written as a
+`\\?\` path, which names the same folder, so `open` starts profiles that way. As a result, a
+profile's Claude and everything it starts (Claude Code sessions, terminals, MCP servers) see
+`LOCALAPPDATA=\\?\C:\Users\…\AppData\Local`. Most programs accept it; PowerShell's `Join-Path` does
+not. While a profile runs, Claude also removes Explorer's **Open with > Claude** entry; the regular
+Claude adds it back the next time it starts.
+
 ## Colored icons
 
 `add` takes the Claude icon already installed on the computer and recolors it, so no artwork ships

@@ -15,6 +15,7 @@ $Palette = [ordered]@{
     teal  = '146C6C'; pink = 'A0346B'; gray   = '4A4F57'
 }
 $NotFound = 'Claude Desktop was not found. Install it from https://claude.ai/download'
+$Reserved = '3p', 'Data'   # Claude's own "Claude-3p" and "Claude-Data" folders, not profiles
 
 function Say([string]$text, [string]$color) { if ($color) { Write-Host $text -ForegroundColor $color } else { Write-Host $text } }
 function Fail([string]$text, [int]$code = 1) { [Console]::Error.WriteLine($text); exit $code }
@@ -55,7 +56,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 # For a new profile, a name that differs from an existing one only by case is refused.
 function Assert-Name([switch]$New) {
     if ($Name -notmatch '^[A-Za-z0-9-]{1,24}$') { Fail 'Profile name: letters, digits and dashes, up to 24 characters (e.g. Work).' 64 }
-    if ($Name -eq '3p') { Fail "The name '3p' is reserved: Claude uses that folder itself." 64 }
+    if ($Name -in $Reserved) { Fail "The name '$Name' is reserved: Claude uses that folder itself." 64 }
     $existing = Get-ProfileName | Where-Object { $_ -eq $Name }   # -eq ignores case
     if ($existing -and $New -and $existing -cne $Name) { Fail "A profile named '$existing' already exists; names are not case-sensitive." 64 }
     if ($existing) { $script:Name = $existing }
@@ -95,22 +96,30 @@ $Browsers = [ordered]@{
 function Get-BrowserKey([string]$browser) { "HKCU:\Software\$($Browsers[$browser])\NativeMessagingHosts\com.anthropic.claude_browser_extension" }
 $ProfileHostPath = '\\Claude-([A-Za-z0-9-]+)\\ChromeNativeHost\\'
 
-# The regular Claude's own manifest, as Claude itself registers it: the Store app keeps it in its
-# package's redirected AppData, other installs in %APPDATA%. $null if it never paired with a browser.
+# The regular Claude's own manifest, as Claude itself registers it, newest layout first: the Store app
+# keeps it in its package's redirected AppData (Claude-NativeHost, or ChromeNativeHost inside its data
+# folder, which newer versions move to %LOCALAPPDATA%\Claude-Data), other installs in %APPDATA%.
+# $null if it never paired with a browser.
 function Get-MainChromeHost {
-    $relative = 'Claude\ChromeNativeHost\com.anthropic.claude_browser_extension.json'
+    $manifest = 'com.anthropic.claude_browser_extension.json'
     $package  = Get-ClaudePackage
     $candidates = @(
-        $(if ($package) { Join-Path $env:LOCALAPPDATA "Packages\$($package.PackageFamilyName)\LocalCache\Roaming\$relative" })
-        (Join-Path $env:APPDATA $relative)
+        if ($package) {
+            $family  = $package.PackageFamilyName
+            $roaming = Join-Path $env:LOCALAPPDATA "Packages\$family\LocalCache\Roaming"
+            Join-Path $roaming "Claude-NativeHost\$manifest"
+            Join-Path $env:LOCALAPPDATA "Claude-Data\$($family.ToLower())\ChromeNativeHost\$manifest"
+            Join-Path $roaming "Claude\ChromeNativeHost\$manifest"
+        }
+        Join-Path $env:APPDATA "Claude\ChromeNativeHost\$manifest"
     )
-    $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 
-# The profile whose manifest a browser points at, if any ("Claude-3p" is Claude's own folder).
+# The profile whose manifest a browser points at, if any.
 function Get-PairingHolder([string]$browser) {
     $key = Get-BrowserKey $browser
-    if ((Test-Path $key) -and ((Get-Item $key).GetValue('') -match $ProfileHostPath) -and $Matches[1] -ne '3p') { $Matches[1] }
+    if ((Test-Path $key) -and ((Get-Item $key).GetValue('') -match $ProfileHostPath) -and $Matches[1] -notin $Reserved) { $Matches[1] }
 }
 
 # Points every browser a profile has taken back at the regular Claude.
@@ -219,7 +228,14 @@ function Invoke-Open {
     # Started from inside a Claude session, we would hand its CLAUDE_*/ANTHROPIC_* variables to Claude.
     Get-ChildItem Env: | Where-Object Name -Match '^(CLAUDE|ANTHROPIC)' | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
     if (-not (Test-Path (Get-LaunchAlias))) { Write-OpenLog $NotFound; Fail $NotFound }
-    Start-Process -FilePath (Get-LaunchAlias) -ArgumentList ('--user-data-dir="{0}"' -f (Get-DataDir $Name))
+    # Newer Claude versions move their data out of the package to %LOCALAPPDATA%\Claude-Data and from
+    # then on lock that folder whatever --user-data-dir says, so the profile would only hand off to the
+    # regular Claude. Claude skips that move when LOCALAPPDATA is a \\?\ path, which names the same
+    # folder, so the profile keeps its own data folder.
+    $alias = Get-LaunchAlias; $dataDir = Get-DataDir $Name; $localAppData = $env:LOCALAPPDATA
+    if ($localAppData -notmatch '^[\\/]{2}') { $env:LOCALAPPDATA = '\\?\' + $localAppData }
+    try { Start-Process -FilePath $alias -ArgumentList ('--user-data-dir="{0}"' -f $dataDir) }
+    finally { $env:LOCALAPPDATA = $localAppData }
     $mainHost = Get-MainChromeHost; $lastLookup = Get-Date
     Repair-ChromePairing $mainHost
 

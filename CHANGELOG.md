@@ -6,6 +6,17 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows: profiles open again with newer Claude Desktop versions, which move their data to
+  `%LOCALAPPDATA%\Claude-Data` and then ignore `--user-data-dir`. Profiles now start with
+  `LOCALAPPDATA` written as a `\\?\` path, which makes Claude skip that move.
+- Windows: Claude in Chrome pairing finds the regular Claude's manifest in its new locations.
+
+### Changed
+
+- `Data` is a reserved profile name, like `3p`: Claude uses the `Claude-Data` folder itself.
+
 ## [0.1.0] - 2026-10-13
 
 ### Added
